@@ -1,8 +1,14 @@
 package verifier
 
+import "time"
+
 // Verifier contains all dependencies needed to perform educated email
 // verification lookups
-type Verifier struct{ hostname, sourceAddr string }
+type Verifier struct {
+	hostname, sourceAddr string
+	maxAttempts          int
+	timeout              time.Duration
+}
 
 // Lookup contains all output data for an email verification Lookup
 type Lookup struct {
@@ -12,8 +18,8 @@ type Lookup struct {
 
 // NewVerifier generates a new Verifier using the passed hostname and
 // source email address
-func NewVerifier(hostname, sourceAddr string) *Verifier {
-	return &Verifier{hostname, sourceAddr}
+func NewVerifier(hostname, sourceAddr string, timeout time.Duration, maxAttempts int) *Verifier {
+	return &Verifier{hostname, sourceAddr, maxAttempts, timeout}
 }
 
 // Verify performs an email verification on the passed email address
@@ -32,7 +38,7 @@ func (v *Verifier) Verify(email string) (*Lookup, error) {
 	l.Address = *address
 
 	// Attempt to form an SMTP Connection
-	del, err := NewDeliverabler(address.Domain, v.hostname, v.sourceAddr)
+	del, err := NewDeliverabler(address.Domain, v.hostname, v.sourceAddr, v.timeout, v.maxAttempts)
 	if err != nil {
 		return &l, ParseSMTPError(err)
 	}
@@ -46,7 +52,7 @@ func (v *Verifier) Verify(email string) (*Lookup, error) {
 		l.CatchAll = true
 		l.Deliverable = true
 	} else {
-		if err := del.IsDeliverable(address.Address, 3); err != nil {
+		if err := del.IsDeliverable(address.Address, v.maxAttempts); err != nil {
 			if le := ParseSMTPError(err); le != nil {
 				if le.Message == ErrFullInbox {
 					l.FullInbox = true // set FullInbox and return no error

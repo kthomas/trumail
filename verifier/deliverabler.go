@@ -16,12 +16,14 @@ import (
 type Deliverabler struct {
 	client                       *smtp.Client
 	domain, hostname, sourceAddr string
+	maxAttempts                  int
+	timeout                      time.Duration
 }
 
 // NewDeliverabler generates a new Deliverabler reference
-func NewDeliverabler(domain, hostname, sourceAddr string) (*Deliverabler, error) {
+func NewDeliverabler(domain, hostname, sourceAddr string, timeout time.Duration, maxAttempts int) (*Deliverabler, error) {
 	// Dial any SMTP server that will accept a connection
-	client, err := mailDialTimeout(domain, time.Minute)
+	client, err := mailDialTimeout(domain, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +39,7 @@ func NewDeliverabler(domain, hostname, sourceAddr string) (*Deliverabler, error)
 	}
 
 	// Return the deliverabler if successful
-	return &Deliverabler{client, domain, hostname, sourceAddr}, nil
+	return &Deliverabler{client, domain, hostname, sourceAddr, maxAttempts, timeout}, nil
 }
 
 // dialSMTP receives a domain and attempts to dial the mail server having
@@ -141,18 +143,18 @@ func smtpDialTimeout(addr string, timeout time.Duration) (*smtp.Client, error) {
 }
 
 // IsDeliverable takes an email address and performs the operation of adding
-// the email to the envelope. It also receives a number of retries to reconnect
-// to the MX server before erring out. If a 250 is received the email is valid
-func (d *Deliverabler) IsDeliverable(email string, retry int) error {
+// the email to the envelope. It also receives the maximum number of retries
+// to reconnect to the MX server before erring out. If a 250 is received the email is valid
+func (d *Deliverabler) IsDeliverable(email string, maxAttempts int) error {
 	if err := d.client.Rcpt(email); err != nil {
 		// If we determine a retry should take place
-		if shouldRetry(err) && retry > 0 {
-			d.Close()                                                    // Close the previous Deliverabler
-			d, err = NewDeliverabler(d.domain, d.hostname, d.sourceAddr) // Generate a new Deliverabler
+		if shouldRetry(err) && maxAttempts > 0 {
+			d.Close()                                                                            // Close the previous Deliverabler
+			d, err = NewDeliverabler(d.domain, d.hostname, d.sourceAddr, d.timeout, maxAttempts) // Generate a new Deliverabler
 			if err != nil {
 				return err
 			}
-			return d.IsDeliverable(email, retry-1) // Retry deliverability check
+			return d.IsDeliverable(email, maxAttempts-1) // Retry deliverability check
 		}
 		return err
 	}
